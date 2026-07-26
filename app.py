@@ -9,7 +9,7 @@ from google.oauth2.service_account import Credentials
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="T&T Asesores — Control Bancario & Facturación",
+    page_title="T&T Asesores — Control Bancario & Facturación (CLP)",
     page_icon="💼",
     layout="wide"
 )
@@ -56,7 +56,7 @@ st.markdown(
     """
     <div class='header-box'>
         <div class='header-title'>T&T ASESORES</div>
-        <div class='header-sub'>Control Financiero, Movimientos Bancarios y Facturación (USD $)</div>
+        <div class='header-sub'>Control Financiero, Movimientos Bancarios y Facturación (Pesos Chilenos - CLP $)</div>
     </div>
     """,
     unsafe_allow_html=True
@@ -176,16 +176,16 @@ def eliminar_fila(pestana_nombre, fila_num, encabezados_default):
             return False, str(e)
     return False, f"Sin conexión: {err}"
 
-HEADERS_FACTURAS = ["ID_Factura", "Cliente", "Monto_USD", "Fecha_Emision", "Estado", "Monto_Pagado", "Saldo_Pendiente"]
-HEADERS_MOVIMIENTOS = ["ID_Movimiento", "Banco", "Tipo", "Monto_USD", "Fecha", "Cliente_Asociado", "Detalle"]
-HEADERS_CONFIG = ["Banco", "Saldo_Inicial_USD"]
+HEADERS_FACTURAS = ["ID_Factura", "Cliente", "Monto_CLP", "Fecha_Emision", "Estado", "Monto_Pagado", "Saldo_Pendiente"]
+HEADERS_MOVIMIENTOS = ["ID_Movimiento", "Banco", "Tipo", "Monto_CLP", "Fecha", "Cliente_Asociado", "Detalle"]
+HEADERS_CONFIG = ["Banco", "Saldo_Inicial_CLP"]
 
 # -----------------------------------------------------------------------------
 # 4. MENÚ PRINCIPAL
 # -----------------------------------------------------------------------------
 menu = st.radio(
     "Navegación:",
-    ["📊 Resumen de Bancos (USD)", "📄 Facturas Emitidas", "💳 Movimientos Bancarios", "⚙️ Configurar Saldos Iniciales"],
+    ["📊 Resumen de Bancos (CLP)", "📄 Facturas Emitidas", "💳 Movimientos Bancarios", "⚙️ Configurar Saldos Iniciales"],
     horizontal=True
 )
 
@@ -198,8 +198,8 @@ if not sh_test:
 # =============================================================================
 # MÓDULO 1: RESUMEN DE BANCOS Y DISPONIBILIDAD TOTAL
 # =============================================================================
-if menu == "📊 Resumen de Bancos (USD)":
-    st.subheader("🏦 Estado de Cuentas Bancarias y Disponibilidad Total")
+if menu == "📊 Resumen de Bancos (CLP)":
+    st.subheader("🏦 Estado de Cuentas Bancarias y Disponibilidad Total (CLP)")
 
     df_config = obtener_datos("Config_Bancos", HEADERS_CONFIG)
     df_mov = obtener_datos("Movimientos_Banco", HEADERS_MOVIMIENTOS)
@@ -212,7 +212,7 @@ if menu == "📊 Resumen de Bancos (USD)":
         for _, r in df_config.iterrows():
             b_nom = str(r.get("banco", r.get("col_0", ""))).strip().lower()
             try:
-                m_val = float(r.get("saldo_inicial_usd", r.get("col_1", 0)))
+                m_val = float(r.get("saldo_inicial_clp", r.get("saldo_inicial_usd", r.get("col_1", 0))))
             except Exception:
                 m_val = 0.0
 
@@ -229,7 +229,7 @@ if menu == "📊 Resumen de Bancos (USD)":
             b = str(r.get("banco", r.get("col_1", ""))).strip().lower()
             tipo = str(r.get("tipo", r.get("col_2", ""))).strip().lower()
             try:
-                monto = float(r.get("monto_usd", r.get("col_3", 0)))
+                monto = float(r.get("monto_clp", r.get("monto_usd", r.get("col_3", 0))))
             except Exception:
                 monto = 0.0
 
@@ -250,7 +250,7 @@ if menu == "📊 Resumen de Bancos (USD)":
     if not df_fac.empty:
         for _, r in df_fac.iterrows():
             try:
-                m_tot = float(r.get("monto_usd", r.get("col_2", 0)))
+                m_tot = float(r.get("monto_clp", r.get("monto_usd", r.get("col_2", 0))))
             except Exception:
                 m_tot = 0.0
             try:
@@ -270,13 +270,13 @@ if menu == "📊 Resumen de Bancos (USD)":
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric("🏦 Banco BICE", f"${saldo_fin_bice:,.2f} USD", delta=f"Inicial: ${saldo_ini_bice:,.2f}")
+        st.metric("🏦 Banco BICE", f"${saldo_fin_bice:,.0f} CLP", delta=f"Inicial: ${saldo_ini_bice:,.0f}")
     with c2:
-        st.metric("💳 Banco Falabella", f"${saldo_fin_fala:,.2f} USD", delta=f"Inicial: ${saldo_ini_fala:,.2f}")
+        st.metric("💳 Banco Falabella", f"${saldo_fin_fala:,.0f} CLP", delta=f"Inicial: ${saldo_ini_fala:,.0f}")
     with c3:
-        st.metric("⏳ Facturas Pendientes", f"${total_pendiente:,.2f} USD", delta=f"Cobrado: ${total_cobrado:,.2f}", delta_color="normal")
+        st.metric("⏳ Facturas Pendientes", f"${total_pendiente:,.0f} CLP", delta=f"Cobrado: ${total_cobrado:,.0f}", delta_color="normal")
     with c4:
-        st.metric("💰 Disponibilidad Total", f"${disponibilidad_total:,.2f} USD", help="Suma de Bancos + Facturas Pendientes de Pago")
+        st.metric("💰 Disponibilidad Total", f"${disponibilidad_total:,.0f} CLP", help="Suma de Bancos + Facturas Pendientes de Pago")
 
     st.markdown("---")
     st.markdown("### 📋 Historial de Movimientos Bancarios")
@@ -289,12 +289,12 @@ if menu == "📊 Resumen de Bancos (USD)":
 # MÓDULO 2: FACTURAS EMITIDAS
 # =============================================================================
 elif menu == "📄 Facturas Emitidas":
-    st.subheader("📄 Registro y Gestión de Facturas Emitidas")
+    st.subheader("📄 Registro y Gestión de Facturas Emitidas (CLP)")
 
     with st.expander("➕ Emitir Nueva Factura", expanded=False):
         with st.form("form_factura", clear_on_submit=True):
             f_cli = st.text_input("Cliente *", placeholder="Ej: Empresa ABC SpA")
-            f_monto = st.number_input("Monto Total (USD) *", min_value=0.01, step=50.0)
+            f_monto = st.number_input("Monto Total (CLP) *", min_value=1.0, step=10000.0)
             f_fecha = st.date_input("Fecha de Emisión", value=date.today())
             f_estado = st.selectbox("Estado Inicial", ["Pendiente", "Pagado"])
             banco_destino = st.selectbox("Si está Pagada, ¿a qué Banco ingresa?", ["Bice", "Falabella"])
@@ -328,7 +328,7 @@ elif menu == "📄 Facturas Emitidas":
             id_f = str(r.get("id_factura", r.get("col_0", "")))
             cli_f = str(r.get("cliente", r.get("col_1", "")))
             try:
-                monto_f = float(r.get("monto_usd", r.get("col_2", 0)))
+                monto_f = float(r.get("monto_clp", r.get("monto_usd", r.get("col_2", 0))))
             except Exception:
                 monto_f = 0.0
             fecha_f = str(r.get("fecha_emision", r.get("col_3", "")))
@@ -350,7 +350,7 @@ elif menu == "📄 Facturas Emitidas":
                     f"""
                     <div style="background: white; padding: 15px; border-radius: 10px; border-left: 5px solid {'#22c55e' if estado_f == 'Pagado' else '#f59e0b'}; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
                         <b>{id_f}</b> | 👤 <b>Cliente:</b> {cli_f} | 📅 <b>Fecha:</b> {fecha_f}<br>
-                        💵 <b>Monto Facturado:</b> ${monto_f:,.2f} USD | 🟢 <b>Cobrado en Banco:</b> ${pagado_f:,.2f} USD | ⏳ <b>Pendiente de Pago:</b> ${saldo_f:,.2f} USD | <b>Estado:</b> {estado_f}
+                        💵 <b>Monto Facturado:</b> ${monto_f:,.0f} CLP | 🟢 <b>Cobrado en Banco:</b> ${pagado_f:,.0f} CLP | ⏳ <b>Pendiente de Pago:</b> ${saldo_f:,.0f} CLP | <b>Estado:</b> {estado_f}
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -377,7 +377,7 @@ elif menu == "📄 Facturas Emitidas":
                         fe1, fe2 = st.columns(2)
                         with fe1:
                             cli_edit = st.text_input("Cliente", value=cli_f, key=f"cli_e_{fila_num}")
-                            monto_edit = st.number_input("Monto Total (USD)", value=monto_f, min_value=0.01, step=50.0, key=f"m_e_{fila_num}")
+                            monto_edit = st.number_input("Monto Total (CLP)", value=monto_f, min_value=1.0, step=10000.0, key=f"m_e_{fila_num}")
                         with fe2:
                             try:
                                 default_dt = pd.to_datetime(fecha_f).date()
@@ -386,7 +386,7 @@ elif menu == "📄 Facturas Emitidas":
                             fecha_edit = st.date_input("Fecha Emisión", value=default_dt, key=f"f_e_{fila_num}")
                             estado_edit = st.selectbox("Estado de Pago", ["Pendiente", "Pagado"], index=0 if estado_f == "Pendiente" else 1, key=f"est_e_{fila_num}")
 
-                        pagado_edit = st.number_input("Monto Cobrado que ingresa al Banco (USD)", value=(monto_edit if estado_edit == "Pagado" else pagado_f), min_value=0.0, max_value=monto_edit, key=f"pag_e_{fila_num}")
+                        pagado_edit = st.number_input("Monto Cobrado que ingresa al Banco (CLP)", value=(monto_edit if estado_edit == "Pagado" else pagado_f), min_value=0.0, max_value=monto_edit, step=10000.0, key=f"pag_e_{fila_num}")
                         banco_cobro = st.selectbox("Banco donde se deposita el cobro", ["Bice", "Falabella"], key=f"bco_e_{fila_num}")
 
                         btn_save_fac = st.form_submit_button("💾 Guardar y Actualizar Banco")
@@ -425,7 +425,7 @@ elif menu == "📄 Facturas Emitidas":
 # MÓDULO 3: REGISTRO DE MOVIMIENTOS
 # =============================================================================
 elif menu == "💳 Movimientos Bancarios":
-    st.subheader("💸 Registrar Movimiento Directo de Banco")
+    st.subheader("💸 Registrar Movimiento Directo de Banco (CLP)")
 
     with st.form("form_movimiento", clear_on_submit=True):
         cm1, cm2, cm3 = st.columns(3)
@@ -434,7 +434,7 @@ elif menu == "💳 Movimientos Bancarios":
         with cm2:
             tipo_mov = st.selectbox("Tipo *", ["Ingreso", "Egreso"])
         with cm3:
-            monto_mov = st.number_input("Monto (USD) *", min_value=0.01, step=50.0)
+            monto_mov = st.number_input("Monto (CLP) *", min_value=1.0, step=10000.0)
 
         cm4, cm5 = st.columns(2)
         with cm4:
@@ -459,11 +459,11 @@ elif menu == "💳 Movimientos Bancarios":
 # MÓDULO 4: SALDOS INICIALES
 # =============================================================================
 elif menu == "⚙️ Configurar Saldos Iniciales":
-    st.subheader("⚙️ Definir Saldos Iniciales en Bancos (USD)")
+    st.subheader("⚙️ Definir Saldos Iniciales en Bancos (CLP)")
 
     with st.form("form_saldos_ini"):
-        s_bice = st.number_input("Saldo Inicial BICE (USD)", min_value=0.0, step=500.0)
-        s_fala = st.number_input("Saldo Inicial Falabella (USD)", min_value=0.0, step=500.0)
+        s_bice = st.number_input("Saldo Inicial BICE (CLP)", min_value=0.0, step=100000.0)
+        s_fala = st.number_input("Saldo Inicial Falabella (CLP)", min_value=0.0, step=100000.0)
 
         sub_ini = st.form_submit_button("💾 Guardar Saldos Iniciales")
         if sub_ini:
