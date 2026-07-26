@@ -228,35 +228,46 @@ if menu == "📊 Resumen de Bancos (USD)":
     saldo_fin_bice = saldo_ini_bice + ingresos_bice - egresos_bice
     saldo_fin_fala = saldo_ini_fala + ingresos_fala - egresos_fala
 
-    # Sumar Cobros de Facturas
-    total_cobrado_facturas = 0.0
-    total_facturado_general = 0.0
+    # Cálculos de Facturación
+    total_facturado = 0.0
+    total_cobrado = 0.0
+    total_pendiente = 0.0
+
     if not df_fac.empty:
         for _, r in df_fac.iterrows():
+            try:
+                m_tot = float(r.get("monto_usd", r.get("col_2", 0)))
+            except Exception:
+                m_tot = 0.0
             try:
                 m_pag = float(r.get("monto_pagado", r.get("col_5", 0)))
             except Exception:
                 m_pag = 0.0
             try:
-                m_tot = float(r.get("monto_usd", r.get("col_2", 0)))
+                m_pend = float(r.get("saldo_pendiente", r.get("col_6", m_tot - m_pag)))
             except Exception:
-                m_tot = 0.0
-                
-            total_cobrado_facturas += m_pag
-            total_facturado_general += m_tot
+                m_pend = max(0.0, m_tot - m_pag)
 
-    disponibilidad_global = saldo_fin_bice + saldo_fin_fala + total_cobrado_facturas
+            total_facturado += m_tot
+            total_cobrado += m_pag
+            total_pendiente += m_pend
 
-    c1, c2, c3, c4 = st.columns(4)
+    # Disponibilidad Total = Suma Bancos + Facturas Pendientes de Pago
+    disponibilidad_total = saldo_fin_bice + saldo_fin_fala + total_pendiente
+
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.metric("🏦 Banco BICE", f"${saldo_fin_bice:,.2f} USD", delta=f"Inicial: ${saldo_ini_bice:,.2f}")
     with c2:
         st.metric("💳 Banco Falabella", f"${saldo_fin_fala:,.2f} USD", delta=f"Inicial: ${saldo_ini_fala:,.2f}")
     with c3:
-        st.metric("💵 Facturas Cobradas", f"${total_cobrado_facturas:,.2f} USD", delta=f"Total Emitido: ${total_facturado_general:,.2f}")
+        st.metric("📄 Total Facturado", f"${total_facturado:,.2f} USD", help="Monto total emitido en facturas")
     with c4:
-        st.metric("💰 Disponibilidad Total", f"${disponibilidad_global:,.2f} USD")
+        st.metric("⏳ Facturas Pendientes", f"${total_pendiente:,.2f} USD", delta=f"Cobrado: ${total_cobrado:,.2f}", delta_color="normal")
+    with c5:
+        st.metric("💰 Disponibilidad Total", f"${disponibilidad_total:,.2f} USD", help="Suma de Bancos + Facturas Pendientes de Pago")
 
+    st.markdown("---")
     st.markdown("### 📋 Historial de Movimientos Bancarios")
     if not df_mov.empty:
         st.dataframe(df_mov, use_container_width=True)
@@ -264,7 +275,7 @@ if menu == "📊 Resumen de Bancos (USD)":
         st.info("No hay movimientos registrados en los bancos.")
 
 # =============================================================================
-# MÓDULO 2: FACTURAS EMITIDAS (CON EDICIÓN, ELIMINACIÓN Y ESTADO DE PAGO)
+# MÓDULO 2: FACTURAS EMITIDAS (CON REGISTRO AUTOMÁTICO EN BANCO)
 # =============================================================================
 elif menu == "📄 Facturas Emitidas":
     st.subheader("📄 Registro y Gestión de Facturas Emitidas")
@@ -275,6 +286,7 @@ elif menu == "📄 Facturas Emitidas":
             f_monto = st.number_input("Monto Total (USD) *", min_value=0.01, step=50.0)
             f_fecha = st.date_input("Fecha de Emisión", value=date.today())
             f_estado = st.selectbox("Estado Inicial", ["Pendiente", "Pagado"])
+            banco_destino = st.selectbox("Si está Pagada, ¿a qué Banco ingresa?", ["Bice", "Falabella"])
 
             sub_fact = st.form_submit_button("💾 Guardar Factura")
             if sub_fact:
@@ -286,7 +298,13 @@ elif menu == "📄 Facturas Emitidas":
                     s_pendiente = 0.0 if f_estado == "Pagado" else f_monto
                     datos_fac = [new_id, f_cli.strip(), f_monto, str(f_fecha), f_estado, m_pagado, s_pendiente]
                     ok, err = agregar_fila("Facturas", datos_fac)
+                    
                     if ok:
+                        # Si nace pagada, volcar automáticamente como Ingreso en Banco
+                        if f_estado == "Pagado":
+                            id_m = f"MOV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                            reg_mov = [id_m, banco_destino, "Ingreso", f_monto, str(f_fecha), f_cli.strip(), f"Pago de Factura {new_id}"]
+                            agregar_fila("Movimientos_Banco", reg_mov)
                         st.success("Factura registrada correctamente.")
                         st.rerun()
                     else:
@@ -322,7 +340,7 @@ elif menu == "📄 Facturas Emitidas":
                     f"""
                     <div style="background: white; padding: 15px; border-radius: 10px; border-left: 5px solid {'#22c55e' if estado_f == 'Pagado' else '#f59e0b'}; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
                         <b>{id_f}</b> | 👤 <b>Cliente:</b> {cli_f} | 📅 <b>Fecha:</b> {fecha_f}<br>
-                        💵 <b>Monto Total:</b> ${monto_f:,.2f} USD | 🟢 <b>Pagado:</b> ${pagado_f:,.2f} USD | 🔴 <b>Pendiente:</b> ${saldo_f:,.2f} USD | <b>Estado:</b> {estado_f}
+                        💵 <b>Monto Facturado:</b> ${monto_f:,.2f} USD | 🟢 <b>Cobrado en Banco:</b> ${pagado_f:,.2f} USD | ⏳ <b>Pendiente de Pago:</b> ${saldo_f:,.2f} USD | <b>Estado:</b> {estado_f}
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -331,7 +349,7 @@ elif menu == "📄 Facturas Emitidas":
             with col_acc:
                 ca1, ca2 = st.columns(2)
                 with ca1:
-                    if st.button("✏️", key=f"edit_fac_{fila_num}_{idx}", help="Editar Factura"):
+                    if st.button("✏️", key=f"edit_fac_{fila_num}_{idx}", help="Editar / Cobrar Factura"):
                         st.session_state[f"edit_fac_mode_{fila_num}"] = not st.session_state.get(f"edit_fac_mode_{fila_num}", False)
                 with ca2:
                     if st.button("❌", key=f"del_fac_{fila_num}_{idx}", help="Eliminar Factura"):
@@ -342,10 +360,10 @@ elif menu == "📄 Facturas Emitidas":
                         else:
                             st.error(f"Error borrando: {err_del}")
 
-            # Formulario emergente para editar factura y estado de pago
+            # Modal de edición y cobro
             if st.session_state.get(f"edit_fac_mode_{fila_num}", False):
                 with st.container():
-                    st.info(f"✏️ **Editando Factura:** {id_f}")
+                    st.info(f"✏️ **Editando / Registrar Cobro de Factura:** {id_f}")
                     with st.form(f"form_edit_fac_{fila_num}"):
                         fe1, fe2 = st.columns(2)
                         with fe1:
@@ -359,9 +377,10 @@ elif menu == "📄 Facturas Emitidas":
                             fecha_edit = st.date_input("Fecha Emisión", value=default_dt, key=f"f_e_{fila_num}")
                             estado_edit = st.selectbox("Estado de Pago", ["Pendiente", "Pagado"], index=0 if estado_f == "Pendiente" else 1, key=f"est_e_{fila_num}")
 
-                        pagado_edit = st.number_input("Monto Pagado (USD)", value=(monto_edit if estado_edit == "Pagado" else pagado_f), min_value=0.0, max_value=monto_edit, key=f"pag_e_{fila_num}")
+                        pagado_edit = st.number_input("Monto Cobrado que ingresa al Banco (USD)", value=(monto_edit if estado_edit == "Pagado" else pagado_f), min_value=0.0, max_value=monto_edit, key=f"pag_e_{fila_num}")
+                        banco_cobro = st.selectbox("Banco donde se deposita el cobro", ["Bice", "Falabella"], key=f"bco_e_{fila_num}")
 
-                        btn_save_fac = st.form_submit_button("💾 Actualizar Factura")
+                        btn_save_fac = st.form_submit_button("💾 Guardar y Actualizar Banco")
 
                         if btn_save_fac:
                             saldo_calc = max(0.0, monto_edit - pagado_edit)
@@ -377,8 +396,16 @@ elif menu == "📄 Facturas Emitidas":
                                 saldo_calc
                             ]
                             ok_upd, err_upd = actualizar_fila("Facturas", fila_num, datos_act)
+                            
                             if ok_upd:
-                                st.success("Factura actualizada correctamente.")
+                                # Registrar la diferencia cobrada en el historial bancario
+                                diferencia_cobrada = pagado_edit - pagado_f
+                                if diferencia_cobrada > 0:
+                                    id_m = f"MOV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                                    reg_mov = [id_m, banco_cobro, "Ingreso", diferencia_cobrada, str(date.today()), cli_edit.strip(), f"Abono / Pago de Factura {id_f}"]
+                                    agregar_fila("Movimientos_Banco", reg_mov)
+
+                                st.success("Factura y movimientos de banco actualizados correctamente.")
                                 st.session_state[f"edit_fac_mode_{fila_num}"] = False
                                 st.rerun()
                             else:
@@ -390,7 +417,7 @@ elif menu == "📄 Facturas Emitidas":
 # MÓDULO 3: REGISTRO DE MOVIMIENTOS
 # =============================================================================
 elif menu == "💳 Movimientos Bancarios":
-    st.subheader("💸 Registrar Movimiento de Banco")
+    st.subheader("💸 Registrar Movimiento Directo de Banco")
 
     with st.form("form_movimiento", clear_on_submit=True):
         cm1, cm2, cm3 = st.columns(3)
