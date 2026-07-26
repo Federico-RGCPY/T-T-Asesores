@@ -44,13 +44,6 @@ st.markdown(
         font-size: 1.1rem;
         margin-top: 5px;
     }
-    .metric-card {
-        background: #ffffff;
-        padding: 20px;
-        border-radius: 12px;
-        border-left: 6px solid #0284c7;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    }
     </style>
     """,
     unsafe_allow_html=True
@@ -102,16 +95,36 @@ def conectar_sheet():
     except Exception as e:
         return None, str(e)
 
+def limpiar_key(texto):
+    replacements = (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u"))
+    s = str(texto).lower().strip()
+    for a, b in replacements:
+        s = s.replace(a, b)
+    return s
+
 def obtener_datos(pestana_nombre):
     sh, err = conectar_sheet()
     if sh:
         try:
             ws = sh.worksheet(pestana_nombre)
             vals = ws.get_all_values()
-            if len(vals) > 1:
-                headers = [str(h).strip() for h in vals[0]]
+            if len(vals) >= 1:
+                headers_raw = [str(h).strip() for h in vals[0]]
                 data = vals[1:]
-                return pd.DataFrame(data, columns=headers)
+                rows_clean = []
+                for idx, r in enumerate(data):
+                    if not any(r):
+                        continue
+                    row_dict = {}
+                    for c_idx, val in enumerate(r):
+                        row_dict[f"col_{c_idx}"] = val
+                        if c_idx < len(headers_raw):
+                            clean_k = limpiar_key(headers_raw[c_idx])
+                            row_dict[clean_k] = val
+                            row_dict[headers_raw[c_idx]] = val
+                    row_dict["_fila_num"] = idx + 2
+                    rows_clean.append(row_dict)
+                return pd.DataFrame(rows_clean)
         except Exception:
             pass
     return pd.DataFrame()
@@ -122,6 +135,31 @@ def agregar_fila(pestana_nombre, fila_datos):
         try:
             ws = sh.worksheet(pestana_nombre)
             ws.append_row([str(x) for x in fila_datos], value_input_option="USER_ENTERED")
+            return True, None
+        except Exception as e:
+            return False, str(e)
+    return False, err
+
+def actualizar_fila(pestana_nombre, fila_num, datos_actualizados):
+    sh, err = conectar_sheet()
+    if sh:
+        try:
+            ws = sh.worksheet(pestana_nombre)
+            num_cols = len(datos_actualizados)
+            col_letra = chr(64 + num_cols) if num_cols <= 26 else "G"
+            rango = f"A{fila_num}:{col_letra}{fila_num}"
+            ws.update(rango, [[str(x) for x in datos_actualizados]], value_input_option="USER_ENTERED")
+            return True, None
+        except Exception as e:
+            return False, str(e)
+    return False, err
+
+def eliminar_fila(pestana_nombre, fila_num):
+    sh, err = conectar_sheet()
+    if sh:
+        try:
+            ws = sh.worksheet(pestana_nombre)
+            ws.delete_rows(int(fila_num))
             return True, None
         except Exception as e:
             return False, str(e)
@@ -138,28 +176,28 @@ menu = st.radio(
 
 st.markdown("---")
 
-# Comprobación inicial de conexión
 sh_test, err_test = conectar_sheet()
 if not sh_test:
     st.warning(f"⚠️ **Atención:** No hay conexión con Google Sheets. Motivo: `{err_test}`")
 
 # =============================================================================
-# MÓDULO 1: RESUMEN DE BANCOS (BICE Y FALABELLA)
+# MÓDULO 1: RESUMEN DE BANCOS Y DISPONIBILIDAD TOTAL
 # =============================================================================
 if menu == "📊 Resumen de Bancos (USD)":
-    st.subheader("🏦 Estado de Cuentas Bancarias")
+    st.subheader("🏦 Estado de Cuentas Bancarias y Disponibilidad Total")
 
     df_config = obtener_datos("Config_Bancos")
     df_mov = obtener_datos("Movimientos_Banco")
+    df_fac = obtener_datos("Facturas")
 
     saldo_ini_bice = 0.0
     saldo_ini_fala = 0.0
 
     if not df_config.empty:
         for _, r in df_config.iterrows():
-            b_nom = str(r.get("Banco", "")).strip().lower()
+            b_nom = str(r.get("banco", r.get("col_0", ""))).strip().lower()
             try:
-                m_val = float(r.get("Saldo_Inicial_USD", 0))
+                m_val = float(r.get("saldo_inicial_usd", r.get("col_1", 0)))
             except Exception:
                 m_val = 0.0
 
@@ -173,10 +211,10 @@ if menu == "📊 Resumen de Bancos (USD)":
 
     if not df_mov.empty:
         for _, r in df_mov.iterrows():
-            b = str(r.get("Banco", "")).strip().lower()
-            tipo = str(r.get("Tipo", "")).strip().lower()
+            b = str(r.get("banco", r.get("col_1", ""))).strip().lower()
+            tipo = str(r.get("tipo", r.get("col_2", ""))).strip().lower()
             try:
-                monto = float(r.get("Monto_USD", 0))
+                monto = float(r.get("monto_usd", r.get("col_3", 0)))
             except Exception:
                 monto = 0.0
 
@@ -190,31 +228,53 @@ if menu == "📊 Resumen de Bancos (USD)":
     saldo_fin_bice = saldo_ini_bice + ingresos_bice - egresos_bice
     saldo_fin_fala = saldo_ini_fala + ingresos_fala - egresos_fala
 
-    c1, c2, c3 = st.columns(3)
+    # Sumar Cobros de Facturas
+    total_cobrado_facturas = 0.0
+    total_facturado_general = 0.0
+    if not df_fac.empty:
+        for _, r in df_fac.iterrows():
+            try:
+                m_pag = float(r.get("monto_pagado", r.get("col_5", 0)))
+            except Exception:
+                m_pag = 0.0
+            try:
+                m_tot = float(r.get("monto_usd", r.get("col_2", 0)))
+            except Exception:
+                m_tot = 0.0
+                
+            total_cobrado_facturas += m_pag
+            total_facturado_general += m_tot
+
+    disponibilidad_global = saldo_fin_bice + saldo_fin_fala + total_cobrado_facturas
+
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric("🏦 Banco BICE", f"${saldo_fin_bice:,.2f} USD", delta=f"Inicial: ${saldo_ini_bice:,.2f}")
     with c2:
         st.metric("💳 Banco Falabella", f"${saldo_fin_fala:,.2f} USD", delta=f"Inicial: ${saldo_ini_fala:,.2f}")
     with c3:
-        st.metric("💰 Total Disponible", f"${(saldo_fin_bice + saldo_fin_fala):,.2f} USD")
+        st.metric("💵 Facturas Cobradas", f"${total_cobrado_facturas:,.2f} USD", delta=f"Total Emitido: ${total_facturado_general:,.2f}")
+    with c4:
+        st.metric("💰 Disponibilidad Total", f"${disponibilidad_global:,.2f} USD")
 
-    st.markdown("### 📋 Historial de Movimientos")
+    st.markdown("### 📋 Historial de Movimientos Bancarios")
     if not df_mov.empty:
         st.dataframe(df_mov, use_container_width=True)
     else:
-        st.info("No hay movimientos registrados en el banco.")
+        st.info("No hay movimientos registrados en los bancos.")
 
 # =============================================================================
-# MÓDULO 2: FACTURAS EMITIDAS
+# MÓDULO 2: FACTURAS EMITIDAS (CON EDICIÓN, ELIMINACIÓN Y ESTADO DE PAGO)
 # =============================================================================
 elif menu == "📄 Facturas Emitidas":
-    st.subheader("📄 Registro de Facturas Emitidas")
+    st.subheader("📄 Registro y Gestión de Facturas Emitidas")
 
     with st.expander("➕ Emitir Nueva Factura", expanded=False):
         with st.form("form_factura", clear_on_submit=True):
             f_cli = st.text_input("Cliente *", placeholder="Ej: Empresa ABC SpA")
             f_monto = st.number_input("Monto Total (USD) *", min_value=0.01, step=50.0)
             f_fecha = st.date_input("Fecha de Emisión", value=date.today())
+            f_estado = st.selectbox("Estado Inicial", ["Pendiente", "Pagado"])
 
             sub_fact = st.form_submit_button("💾 Guardar Factura")
             if sub_fact:
@@ -222,7 +282,9 @@ elif menu == "📄 Facturas Emitidas":
                     st.error("Debes ingresar el nombre del cliente.")
                 else:
                     new_id = f"FAC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                    datos_fac = [new_id, f_cli.strip(), f_monto, str(f_fecha), "Pendiente", 0.0, f_monto]
+                    m_pagado = f_monto if f_estado == "Pagado" else 0.0
+                    s_pendiente = 0.0 if f_estado == "Pagado" else f_monto
+                    datos_fac = [new_id, f_cli.strip(), f_monto, str(f_fecha), f_estado, m_pagado, s_pendiente]
                     ok, err = agregar_fila("Facturas", datos_fac)
                     if ok:
                         st.success("Factura registrada correctamente.")
@@ -230,10 +292,97 @@ elif menu == "📄 Facturas Emitidas":
                     else:
                         st.error(f"Error al guardar: {err}")
 
-    st.markdown("### 📚 Facturas Registradas")
+    st.markdown("### 📚 Listado de Facturas Emitidas")
     df_fac = obtener_datos("Facturas")
+
     if not df_fac.empty:
-        st.dataframe(df_fac, use_container_width=True)
+        for idx, r in df_fac.iterrows():
+            id_f = str(r.get("id_factura", r.get("col_0", "")))
+            cli_f = str(r.get("cliente", r.get("col_1", "")))
+            try:
+                monto_f = float(r.get("monto_usd", r.get("col_2", 0)))
+            except Exception:
+                monto_f = 0.0
+            fecha_f = str(r.get("fecha_emision", r.get("col_3", "")))
+            estado_f = str(r.get("estado", r.get("col_4", "Pendiente")))
+            try:
+                pagado_f = float(r.get("monto_pagado", r.get("col_5", 0)))
+            except Exception:
+                pagado_f = 0.0
+            try:
+                saldo_f = float(r.get("saldo_pendiente", r.get("col_6", monto_f)))
+            except Exception:
+                saldo_f = monto_f
+            fila_num = r.get("_fila_num")
+
+            col_info, col_acc = st.columns([0.8, 0.2])
+
+            with col_info:
+                st.markdown(
+                    f"""
+                    <div style="background: white; padding: 15px; border-radius: 10px; border-left: 5px solid {'#22c55e' if estado_f == 'Pagado' else '#f59e0b'}; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
+                        <b>{id_f}</b> | 👤 <b>Cliente:</b> {cli_f} | 📅 <b>Fecha:</b> {fecha_f}<br>
+                        💵 <b>Monto Total:</b> ${monto_f:,.2f} USD | 🟢 <b>Pagado:</b> ${pagado_f:,.2f} USD | 🔴 <b>Pendiente:</b> ${saldo_f:,.2f} USD | <b>Estado:</b> {estado_f}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            with col_acc:
+                ca1, ca2 = st.columns(2)
+                with ca1:
+                    if st.button("✏️", key=f"edit_fac_{fila_num}_{idx}", help="Editar Factura"):
+                        st.session_state[f"edit_fac_mode_{fila_num}"] = not st.session_state.get(f"edit_fac_mode_{fila_num}", False)
+                with ca2:
+                    if st.button("❌", key=f"del_fac_{fila_num}_{idx}", help="Eliminar Factura"):
+                        ok_del, err_del = eliminar_fila("Facturas", fila_num)
+                        if ok_del:
+                            st.success("Factura eliminada.")
+                            st.rerun()
+                        else:
+                            st.error(f"Error borrando: {err_del}")
+
+            # Formulario emergente para editar factura y estado de pago
+            if st.session_state.get(f"edit_fac_mode_{fila_num}", False):
+                with st.container():
+                    st.info(f"✏️ **Editando Factura:** {id_f}")
+                    with st.form(f"form_edit_fac_{fila_num}"):
+                        fe1, fe2 = st.columns(2)
+                        with fe1:
+                            cli_edit = st.text_input("Cliente", value=cli_f, key=f"cli_e_{fila_num}")
+                            monto_edit = st.number_input("Monto Total (USD)", value=monto_f, min_value=0.01, step=50.0, key=f"m_e_{fila_num}")
+                        with fe2:
+                            try:
+                                default_dt = pd.to_datetime(fecha_f).date()
+                            except Exception:
+                                default_dt = date.today()
+                            fecha_edit = st.date_input("Fecha Emisión", value=default_dt, key=f"f_e_{fila_num}")
+                            estado_edit = st.selectbox("Estado de Pago", ["Pendiente", "Pagado"], index=0 if estado_f == "Pendiente" else 1, key=f"est_e_{fila_num}")
+
+                        pagado_edit = st.number_input("Monto Pagado (USD)", value=(monto_edit if estado_edit == "Pagado" else pagado_f), min_value=0.0, max_value=monto_edit, key=f"pag_e_{fila_num}")
+
+                        btn_save_fac = st.form_submit_button("💾 Actualizar Factura")
+
+                        if btn_save_fac:
+                            saldo_calc = max(0.0, monto_edit - pagado_edit)
+                            estado_final = "Pagado" if saldo_calc == 0.0 else estado_edit
+                            
+                            datos_act = [
+                                id_f,
+                                cli_edit.strip(),
+                                monto_edit,
+                                str(fecha_edit),
+                                estado_final,
+                                pagado_edit,
+                                saldo_calc
+                            ]
+                            ok_upd, err_upd = actualizar_fila("Facturas", fila_num, datos_act)
+                            if ok_upd:
+                                st.success("Factura actualizada correctamente.")
+                                st.session_state[f"edit_fac_mode_{fila_num}"] = False
+                                st.rerun()
+                            else:
+                                st.error(f"Error al actualizar: {err_upd}")
     else:
         st.info("No hay facturas emitidas.")
 
