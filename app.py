@@ -95,6 +95,17 @@ def conectar_sheet():
     except Exception as e:
         return None, str(e)
 
+def obtener_o_crear_pestaña(sh, nombre_pestana, encabezados_default):
+    try:
+        return sh.worksheet(nombre_pestana)
+    except Exception:
+        for ws in sh.worksheets():
+            if ws.title.strip().lower() == nombre_pestana.strip().lower():
+                return ws
+        ws = sh.add_worksheet(title=nombre_pestana, rows="100", cols="20")
+        ws.append_row(encabezados_default, value_input_option="USER_ENTERED")
+        return ws
+
 def limpiar_key(texto):
     replacements = (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u"))
     s = str(texto).lower().strip()
@@ -102,11 +113,11 @@ def limpiar_key(texto):
         s = s.replace(a, b)
     return s
 
-def obtener_datos(pestana_nombre):
+def obtener_datos(pestana_nombre, encabezados_default):
     sh, err = conectar_sheet()
     if sh:
         try:
-            ws = sh.worksheet(pestana_nombre)
+            ws = obtener_o_crear_pestaña(sh, pestana_nombre, encabezados_default)
             vals = ws.get_all_values()
             if len(vals) >= 1:
                 headers_raw = [str(h).strip() for h in vals[0]]
@@ -129,22 +140,22 @@ def obtener_datos(pestana_nombre):
             pass
     return pd.DataFrame()
 
-def agregar_fila(pestana_nombre, fila_datos):
+def agregar_fila(pestana_nombre, fila_datos, encabezados_default):
     sh, err = conectar_sheet()
     if sh:
         try:
-            ws = sh.worksheet(pestana_nombre)
+            ws = obtener_o_crear_pestaña(sh, pestana_nombre, encabezados_default)
             ws.append_row([str(x) for x in fila_datos], value_input_option="USER_ENTERED")
             return True, None
         except Exception as e:
             return False, str(e)
-    return False, err
+    return False, f"Sin conexión: {err}"
 
-def actualizar_fila(pestana_nombre, fila_num, datos_actualizados):
+def actualizar_fila(pestana_nombre, fila_num, datos_actualizados, encabezados_default):
     sh, err = conectar_sheet()
     if sh:
         try:
-            ws = sh.worksheet(pestana_nombre)
+            ws = obtener_o_crear_pestaña(sh, pestana_nombre, encabezados_default)
             num_cols = len(datos_actualizados)
             col_letra = chr(64 + num_cols) if num_cols <= 26 else "G"
             rango = f"A{fila_num}:{col_letra}{fila_num}"
@@ -152,18 +163,22 @@ def actualizar_fila(pestana_nombre, fila_num, datos_actualizados):
             return True, None
         except Exception as e:
             return False, str(e)
-    return False, err
+    return False, f"Sin conexión: {err}"
 
-def eliminar_fila(pestana_nombre, fila_num):
+def eliminar_fila(pestana_nombre, fila_num, encabezados_default):
     sh, err = conectar_sheet()
     if sh:
         try:
-            ws = sh.worksheet(pestana_nombre)
+            ws = obtener_o_crear_pestaña(sh, pestana_nombre, encabezados_default)
             ws.delete_rows(int(fila_num))
             return True, None
         except Exception as e:
             return False, str(e)
-    return False, err
+    return False, f"Sin conexión: {err}"
+
+HEADERS_FACTURAS = ["ID_Factura", "Cliente", "Monto_USD", "Fecha_Emision", "Estado", "Monto_Pagado", "Saldo_Pendiente"]
+HEADERS_MOVIMIENTOS = ["ID_Movimiento", "Banco", "Tipo", "Monto_USD", "Fecha", "Cliente_Asociado", "Detalle"]
+HEADERS_CONFIG = ["Banco", "Saldo_Inicial_USD"]
 
 # -----------------------------------------------------------------------------
 # 4. MENÚ PRINCIPAL
@@ -186,9 +201,9 @@ if not sh_test:
 if menu == "📊 Resumen de Bancos (USD)":
     st.subheader("🏦 Estado de Cuentas Bancarias y Disponibilidad Total")
 
-    df_config = obtener_datos("Config_Bancos")
-    df_mov = obtener_datos("Movimientos_Banco")
-    df_fac = obtener_datos("Facturas")
+    df_config = obtener_datos("Config_Bancos", HEADERS_CONFIG)
+    df_mov = obtener_datos("Movimientos_Banco", HEADERS_MOVIMIENTOS)
+    df_fac = obtener_datos("Facturas", HEADERS_FACTURAS)
 
     saldo_ini_bice = 0.0
     saldo_ini_fala = 0.0
@@ -229,7 +244,6 @@ if menu == "📊 Resumen de Bancos (USD)":
     saldo_fin_fala = saldo_ini_fala + ingresos_fala - egresos_fala
 
     # Cálculos de Facturación
-    total_facturado = 0.0
     total_cobrado = 0.0
     total_pendiente = 0.0
 
@@ -248,23 +262,20 @@ if menu == "📊 Resumen de Bancos (USD)":
             except Exception:
                 m_pend = max(0.0, m_tot - m_pag)
 
-            total_facturado += m_tot
             total_cobrado += m_pag
             total_pendiente += m_pend
 
-    # Disponibilidad Total = Suma Bancos + Facturas Pendientes de Pago
+    # Disponibilidad Total = Suma Bancos + Facturas Pendientes
     disponibilidad_total = saldo_fin_bice + saldo_fin_fala + total_pendiente
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric("🏦 Banco BICE", f"${saldo_fin_bice:,.2f} USD", delta=f"Inicial: ${saldo_ini_bice:,.2f}")
     with c2:
         st.metric("💳 Banco Falabella", f"${saldo_fin_fala:,.2f} USD", delta=f"Inicial: ${saldo_ini_fala:,.2f}")
     with c3:
-        st.metric("📄 Total Facturado", f"${total_facturado:,.2f} USD", help="Monto total emitido en facturas")
-    with c4:
         st.metric("⏳ Facturas Pendientes", f"${total_pendiente:,.2f} USD", delta=f"Cobrado: ${total_cobrado:,.2f}", delta_color="normal")
-    with c5:
+    with c4:
         st.metric("💰 Disponibilidad Total", f"${disponibilidad_total:,.2f} USD", help="Suma de Bancos + Facturas Pendientes de Pago")
 
     st.markdown("---")
@@ -275,7 +286,7 @@ if menu == "📊 Resumen de Bancos (USD)":
         st.info("No hay movimientos registrados en los bancos.")
 
 # =============================================================================
-# MÓDULO 2: FACTURAS EMITIDAS (CON REGISTRO AUTOMÁTICO EN BANCO)
+# MÓDULO 2: FACTURAS EMITIDAS
 # =============================================================================
 elif menu == "📄 Facturas Emitidas":
     st.subheader("📄 Registro y Gestión de Facturas Emitidas")
@@ -297,21 +308,20 @@ elif menu == "📄 Facturas Emitidas":
                     m_pagado = f_monto if f_estado == "Pagado" else 0.0
                     s_pendiente = 0.0 if f_estado == "Pagado" else f_monto
                     datos_fac = [new_id, f_cli.strip(), f_monto, str(f_fecha), f_estado, m_pagado, s_pendiente]
-                    ok, err = agregar_fila("Facturas", datos_fac)
+                    ok, err = agregar_fila("Facturas", datos_fac, HEADERS_FACTURAS)
                     
                     if ok:
-                        # Si nace pagada, volcar automáticamente como Ingreso en Banco
                         if f_estado == "Pagado":
                             id_m = f"MOV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
                             reg_mov = [id_m, banco_destino, "Ingreso", f_monto, str(f_fecha), f_cli.strip(), f"Pago de Factura {new_id}"]
-                            agregar_fila("Movimientos_Banco", reg_mov)
+                            agregar_fila("Movimientos_Banco", reg_mov, HEADERS_MOVIMIENTOS)
                         st.success("Factura registrada correctamente.")
                         st.rerun()
                     else:
                         st.error(f"Error al guardar: {err}")
 
     st.markdown("### 📚 Listado de Facturas Emitidas")
-    df_fac = obtener_datos("Facturas")
+    df_fac = obtener_datos("Facturas", HEADERS_FACTURAS)
 
     if not df_fac.empty:
         for idx, r in df_fac.iterrows():
@@ -353,14 +363,13 @@ elif menu == "📄 Facturas Emitidas":
                         st.session_state[f"edit_fac_mode_{fila_num}"] = not st.session_state.get(f"edit_fac_mode_{fila_num}", False)
                 with ca2:
                     if st.button("❌", key=f"del_fac_{fila_num}_{idx}", help="Eliminar Factura"):
-                        ok_del, err_del = eliminar_fila("Facturas", fila_num)
+                        ok_del, err_del = eliminar_fila("Facturas", fila_num, HEADERS_FACTURAS)
                         if ok_del:
                             st.success("Factura eliminada.")
                             st.rerun()
                         else:
                             st.error(f"Error borrando: {err_del}")
 
-            # Modal de edición y cobro
             if st.session_state.get(f"edit_fac_mode_{fila_num}", False):
                 with st.container():
                     st.info(f"✏️ **Editando / Registrar Cobro de Factura:** {id_f}")
@@ -395,15 +404,14 @@ elif menu == "📄 Facturas Emitidas":
                                 pagado_edit,
                                 saldo_calc
                             ]
-                            ok_upd, err_upd = actualizar_fila("Facturas", fila_num, datos_act)
+                            ok_upd, err_upd = actualizar_fila("Facturas", fila_num, datos_act, HEADERS_FACTURAS)
                             
                             if ok_upd:
-                                # Registrar la diferencia cobrada en el historial bancario
                                 diferencia_cobrada = pagado_edit - pagado_f
                                 if diferencia_cobrada > 0:
                                     id_m = f"MOV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
                                     reg_mov = [id_m, banco_cobro, "Ingreso", diferencia_cobrada, str(date.today()), cli_edit.strip(), f"Abono / Pago de Factura {id_f}"]
-                                    agregar_fila("Movimientos_Banco", reg_mov)
+                                    agregar_fila("Movimientos_Banco", reg_mov, HEADERS_MOVIMIENTOS)
 
                                 st.success("Factura y movimientos de banco actualizados correctamente.")
                                 st.session_state[f"edit_fac_mode_{fila_num}"] = False
@@ -440,7 +448,7 @@ elif menu == "💳 Movimientos Bancarios":
         if sub_mov:
             id_m = f"MOV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             registro_mov = [id_m, banco_sel, tipo_mov, monto_mov, str(fecha_mov), cliente_mov.strip(), detalle_mov.strip()]
-            ok, err = agregar_fila("Movimientos_Banco", registro_mov)
+            ok, err = agregar_fila("Movimientos_Banco", registro_mov, HEADERS_MOVIMIENTOS)
             if ok:
                 st.success("Movimiento registrado en el banco.")
                 st.rerun()
@@ -459,8 +467,8 @@ elif menu == "⚙️ Configurar Saldos Iniciales":
 
         sub_ini = st.form_submit_button("💾 Guardar Saldos Iniciales")
         if sub_ini:
-            ok1, _ = agregar_fila("Config_Bancos", ["Bice", s_bice])
-            ok2, _ = agregar_fila("Config_Bancos", ["Falabella", s_fala])
+            ok1, _ = agregar_fila("Config_Bancos", ["Bice", s_bice], HEADERS_CONFIG)
+            ok2, _ = agregar_fila("Config_Bancos", ["Falabella", s_fala], HEADERS_CONFIG)
             if ok1 and ok2:
                 st.success("Saldos iniciales guardados.")
                 st.rerun()
