@@ -185,7 +185,7 @@ HEADERS_CONFIG = ["Banco", "Saldo_Inicial_CLP"]
 # -----------------------------------------------------------------------------
 menu = st.radio(
     "Navegación:",
-    ["📊 Resumen de Bancos (CLP)", "📄 Facturas Emitidas", "💳 Movimientos Bancarios", "⚙️ Configurar Saldos Iniciales"],
+    ["📊 Resumen de Bancos (CLP)", "📄 Facturas Emitidas", "💳 Movimientos Bancarios", "🔄 Transferir Entre Bancos", "⚙️ Configurar Saldos Iniciales"],
     horizontal=True
 )
 
@@ -440,9 +440,9 @@ elif menu == "💳 Movimientos Bancarios":
         with cm4:
             fecha_mov = st.date_input("Fecha", value=date.today())
         with cm5:
-            cliente_mov = st.text_input("Cliente / Proveedor")
+            cliente_mov = st.text_input("Cliente / Proveedor / Detalle")
 
-        detalle_mov = st.text_area("Detalle / Observaciones")
+        detalle_mov = st.text_area("Observaciones")
 
         sub_mov = st.form_submit_button("💾 Registrar Movimiento")
         if sub_mov:
@@ -456,7 +456,51 @@ elif menu == "💳 Movimientos Bancarios":
                 st.error(f"Error: {err}")
 
 # =============================================================================
-# MÓDULO 4: SALDOS INICIALES
+# MÓDULO 4: TRANSFERENCIAS ENTRE BANCOS
+# =============================================================================
+elif menu == "🔄 Transferir Entre Bancos":
+    st.subheader("🔄 Traspaso de Fondos entre Bancos (CLP)")
+    st.caption("Registra una transferencia interna desde un banco hacia el otro.")
+
+    with st.form("form_traspaso", clear_on_submit=True):
+        ct1, ct2 = st.columns(2)
+        with ct1:
+            banco_origen = st.selectbox("Banco de ORIGEN (Sale dinero) *", ["Bice", "Falabella"], index=0)
+        with ct2:
+            banco_destino = st.selectbox("Banco de DESTINO (Entra dinero) *", ["Falabella", "Bice"], index=0)
+
+        ct3, ct4 = st.columns(2)
+        with ct3:
+            monto_traspaso = st.number_input("Monto a Transferir (CLP) *", min_value=1.0, step=50000.0)
+        with ct4:
+            fecha_traspaso = st.date_input("Fecha del Traspaso", value=date.today())
+
+        glosa_traspaso = st.text_input("Motivo / Observaciones del Traspaso", value="Traspaso interno de fondos")
+
+        sub_traspaso = st.form_submit_button("🔁 Ejecutar Transferencia")
+
+        if sub_traspaso:
+            if banco_origen == banco_destino:
+                st.error("El banco de origen y destino deben ser diferentes.")
+            else:
+                # 1. Registrar EGRESO en banco de origen
+                id_egr = f"TRF-OUT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                reg_egr = [id_egr, banco_origen, "Egreso", monto_traspaso, str(fecha_traspaso), "Traspaso Interno", f"{glosa_traspaso} (Hacia {banco_destino})"]
+                ok1, err1 = agregar_fila("Movimientos_Banco", reg_egr, HEADERS_MOVIMIENTOS)
+
+                # 2. Registrar INGRESO en banco de destino
+                id_ing = f"TRF-IN-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                reg_ing = [id_ing, banco_destino, "Ingreso", monto_traspaso, str(fecha_traspaso), "Traspaso Interno", f"{glosa_traspaso} (Desde {banco_origen})"]
+                ok2, err2 = agregar_fila("Movimientos_Banco", reg_ing, HEADERS_MOVIMIENTOS)
+
+                if ok1 and ok2:
+                    st.success(f"✅ Transferencia realizada con éxito: ${monto_traspaso:,.0f} CLP transferidos de {banco_origen} a {banco_destino}.")
+                    st.rerun()
+                else:
+                    st.error(f"Error registrando transferencia: {err1 or err2}")
+
+# =============================================================================
+# MÓDULO 5: SALDOS INICIALES
 # =============================================================================
 elif menu == "⚙️ Configurar Saldos Iniciales":
     st.subheader("⚙️ Definir Saldos Iniciales en Bancos (CLP)")
